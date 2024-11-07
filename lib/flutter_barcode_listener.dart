@@ -32,36 +32,35 @@ class BarcodeKeyboardListener extends StatefulWidget {
   /// It will buffer all characters coming in specifed `bufferDuration` time frame
   /// that end with line feed character and call callback function with result.
   /// Keep in mind this widget will listen for events even when not visible.
-  BarcodeKeyboardListener(
-      {Key? key,
+  BarcodeKeyboardListener({
+    Key? key,
 
-      /// Child widget to be displayed.
-      required this.child,
+    /// Child widget to be displayed.
+    required this.child,
 
-      /// Callback to be called when barcode is scanned.
-      required Function(String) onBarcodeScanned,
+    /// Callback to be called when barcode is scanned.
+    required Function(String) onBarcodeScanned,
 
-      /// When experiencing issueswith empty barcodes on Windows,
-      /// set this value to true. Default value is `false`.
-      this.useKeyDownEvent = false,
+    /// When experiencing issueswith empty barcodes on Windows,
+    /// set this value to true. Default value is `false`.
+    this.useKeyDownEvent = false,
 
-      /// Maximum time between two key events.
-      /// If time between two key events is longer than this value
-      /// previous keys will be ignored.
-      Duration bufferDuration = hundredMs,
-      this.caseSensitive = false,
-      })
-      : _onBarcodeScanned = onBarcodeScanned,
+    /// Maximum time between two key events.
+    /// If time between two key events is longer than this value
+    /// previous keys will be ignored.
+    Duration bufferDuration = hundredMs,
+    this.caseSensitive = false,
+  })  : _onBarcodeScanned = onBarcodeScanned,
         _bufferDuration = bufferDuration,
         super(key: key);
 
   @override
-  _BarcodeKeyboardListenerState createState() => _BarcodeKeyboardListenerState(
-      _onBarcodeScanned, _bufferDuration, useKeyDownEvent, caseSensitive);
+  _BarcodeKeyboardListenerState createState() => _BarcodeKeyboardListenerState(_onBarcodeScanned, _bufferDuration, useKeyDownEvent, caseSensitive);
 }
 
 const Duration aSecond = Duration(seconds: 1);
 const Duration hundredMs = Duration(milliseconds: 100);
+const Duration timerWaitDuration = Duration(milliseconds: 300);
 const String lineFeed = '\n';
 
 class _BarcodeKeyboardListenerState extends State<BarcodeKeyboardListener> {
@@ -80,30 +79,33 @@ class _BarcodeKeyboardListenerState extends State<BarcodeKeyboardListener> {
 
   bool _isShiftPressed = false;
 
-  _BarcodeKeyboardListenerState(this._onBarcodeScannedCallback,
-      this._bufferDuration, this._useKeyDownEvent, this._caseSensitive) {
+  Timer? _lastCharObservingTimer;
+
+  _BarcodeKeyboardListenerState(this._onBarcodeScannedCallback, this._bufferDuration, this._useKeyDownEvent, this._caseSensitive) {
     HardwareKeyboard.instance.addHandler(_keyBoardCallback);
-    _keyboardSubscription =
-        _controller.stream.where((char) => char != null).listen(onKeyEvent);
+    _keyboardSubscription = _controller.stream.where((char) => char != null).listen(onKeyEvent);
   }
 
   void onKeyEvent(String? char) {
     //remove any pending characters older than bufferDuration value
     checkPendingCharCodesToClear();
     _lastScannedCharCodeTime = DateTime.now();
+    _lastCharObservingTimer?.cancel();
     if (char == lineFeed) {
       _onBarcodeScannedCallback.call(_scannedChars.join());
       resetScannedCharCodes();
     } else {
       //add character to list of scanned characters;
       _scannedChars.add(char!);
+      _lastCharObservingTimer = Timer(timerWaitDuration, () {
+        onKeyEvent(lineFeed);
+      });
     }
   }
 
   void checkPendingCharCodesToClear() {
     if (_lastScannedCharCodeTime != null) {
-      if (_lastScannedCharCodeTime!
-          .isBefore(DateTime.now().subtract(_bufferDuration))) {
+      if (_lastScannedCharCodeTime!.isBefore(DateTime.now().subtract(_bufferDuration))) {
         resetScannedCharCodes();
       }
     }
@@ -119,14 +121,12 @@ class _BarcodeKeyboardListenerState extends State<BarcodeKeyboardListener> {
   }
 
   bool _keyBoardCallback(KeyEvent keyEvent) {
-    if ((!_useKeyDownEvent && keyEvent is KeyUpEvent)
-              || (_useKeyDownEvent && keyEvent is KeyDownEvent)) {
+    if ((!_useKeyDownEvent && keyEvent is KeyUpEvent) || (_useKeyDownEvent && keyEvent is KeyDownEvent)) {
       if (keyEvent.logicalKey == LogicalKeyboardKey.shiftLeft) {
         _isShiftPressed = true;
       } else if (keyEvent.logicalKey == LogicalKeyboardKey.enter) {
         _controller.sink.add(lineFeed);
-      } else if (keyEvent.logicalKey.keyId >= 0x20
-                    && keyEvent.logicalKey.keyId <= 0x7A) {
+      } else if (keyEvent.logicalKey.keyId >= 0x20 && keyEvent.logicalKey.keyId <= 0x7A) {
         var char = String.fromCharCode(keyEvent.logicalKey.keyId);
         if (_isShiftPressed && _caseSensitive) {
           _isShiftPressed = false;
